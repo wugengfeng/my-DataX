@@ -1,11 +1,14 @@
 package com.alibaba.datax.plugin.rdbms.util;
 
+import com.alibaba.datax.common.constant.LogDbEnum;
+import com.alibaba.datax.common.constant.SourceDbEnum;
 import com.alibaba.datax.common.exception.DataXException;
 import com.alibaba.datax.common.util.Configuration;
 import com.alibaba.datax.common.util.RetryUtil;
 import com.alibaba.datax.plugin.rdbms.reader.Key;
 import com.alibaba.druid.sql.parser.SQLParserUtils;
 import com.alibaba.druid.sql.parser.SQLStatementParser;
+import com.alibaba.fastjson.JSON;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import org.apache.commons.lang3.StringUtils;
@@ -246,6 +249,28 @@ public final class DBUtil {
         return hasInsertPrivilege;
     }
 
+
+    /**
+     * 重载 校验数据库插入权限
+     * @param configMap
+     * @return
+     */
+    public static boolean checkInsertPrivilege(Map<String, String> configMap) {
+        boolean hasInsertPrivilege = true;
+        try {
+            DataBaseType dataBaseType = DataBaseType.valueOf(configMap.get(LogDbEnum.TYPE.name()));
+            String jdbcURL = configMap.get(LogDbEnum.JDBC_URL.name());
+            String userName = configMap.get(LogDbEnum.USERNAME.name());
+            String password = configMap.get(LogDbEnum.PASSWORD.name());
+            String table = configMap.get(LogDbEnum.TABLE.name());
+            hasInsertPrivilege = checkInsertPrivilege(dataBaseType, jdbcURL, userName, password, Collections.singletonList(table));
+        } catch (Exception e) {
+            LOG.error("数据库 INSERT 权限校验异常 配置：{}", JSON.toJSONString(configMap), e);
+        }
+        return hasInsertPrivilege;
+    }
+
+
     public static boolean checkDeletePrivilege(DataBaseType dataBaseType,String jdbcURL, String userName, String password, List<String> tableList) {
         Connection connection = connect(dataBaseType, jdbcURL, userName, password);
         String deleteTemplate = "delete from %s WHERE 1 = 2";
@@ -268,6 +293,28 @@ public final class DBUtil {
             LOG.warn("connection close failed, " + e.getMessage());
         }
         return hasInsertPrivilege;
+    }
+
+    /**
+     * 重载 校验删除权限方法
+     * @param configMap
+     * @return
+     */
+    public static boolean checkDeletePrivilege(Map<String, String> configMap) {
+        boolean hasDeletePrivilege = true;
+
+        try {
+            DataBaseType dataBaseType = DataBaseType.valueOf(configMap.get(LogDbEnum.TYPE.name()));
+            String jdbcURL = configMap.get(LogDbEnum.JDBC_URL.name());
+            String userName = configMap.get(LogDbEnum.USERNAME.name());
+            String password = configMap.get(LogDbEnum.PASSWORD.name());
+            String table = configMap.get(LogDbEnum.TABLE.name());
+            hasDeletePrivilege = checkDeletePrivilege(dataBaseType, jdbcURL, userName, password, Collections.singletonList(table));
+        } catch (Exception e) {
+            LOG.error("数据库 DELETE 权限校验异常 配置：{}", JSON.toJSONString(configMap), e);
+        }
+
+        return hasDeletePrivilege;
     }
 
     public static boolean needCheckDeletePrivilege(Configuration originalConfig) {
@@ -328,6 +375,14 @@ public final class DBUtil {
                     DBUtilErrorCode.CONN_DB_ERROR,
                     String.format("数据库连接失败. 因为根据您配置的连接信息:%s获取数据库连接失败. 请检查您的配置并作出修改.", jdbcUrl), e);
         }
+    }
+
+    public static Connection getConnection(final Map<String, String> configMap) {
+        String jdbcURL = configMap.get(SourceDbEnum.JDBC_URL.name());
+        String userName = configMap.get(SourceDbEnum.USERNAME.name());
+        String password = configMap.get(SourceDbEnum.PASSWORD.name());
+        DataBaseType dataBaseType = DataBaseType.valueOf(configMap.get(LogDbEnum.TYPE.name()));
+        return getConnection(dataBaseType, jdbcURL, userName, password);
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.alibaba.datax.plugin.rdbms.writer;
 
+import com.alibaba.datax.common.constant.SourceDbEnum;
 import com.alibaba.datax.common.element.Column;
 import com.alibaba.datax.common.element.Record;
 import com.alibaba.datax.common.exception.DataXException;
@@ -12,6 +13,8 @@ import com.alibaba.datax.plugin.rdbms.util.DataBaseType;
 import com.alibaba.datax.plugin.rdbms.util.RdbmsException;
 import com.alibaba.datax.plugin.rdbms.writer.util.OriginalConfPretreatmentUtil;
 import com.alibaba.datax.plugin.rdbms.writer.util.WriterUtil;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import org.slf4j.Logger;
@@ -23,6 +26,8 @@ import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 public class CommonRdbmsWriter {
 
@@ -308,6 +313,66 @@ public class CommonRdbmsWriter {
             }
         }
 
+        public void startWriteWithConnection(RecordReceiver recordReceiver, TaskPluginCollector taskPluginCollector, Connection connection,
+                                             Map<String, String> configMap) {
+
+            Connection sourceConnection = null;
+            if (MapUtils.isNotEmpty(configMap)) {
+                sourceConnection = DBUtil.getConnection(configMap);
+                LOG.info("删除源数据信息 url：[{}]", configMap.get(SourceDbEnum.JDBC_URL.name()));
+                LOG.info("删除源数据表：[{}]", configMap.get(SourceDbEnum.TABLE.name()));
+            }
+
+            this.taskPluginCollector = taskPluginCollector;
+
+            // 用于写入数据的时候的类型根据目的表字段类型转换
+            this.resultSetMetaData = DBUtil.getColumnMetaData(connection,
+                    this.table, StringUtils.join(this.columns, ","));
+            // 写数据库的SQL语句
+            calcWriteRecordSql();
+
+            List<Record> writeBuffer = new ArrayList<Record>(this.batchSize);
+            int bufferBytes = 0;
+            try {
+                Record record;
+                while ((record = recordReceiver.getFromReader()) != null) {
+                    if (record.getColumnNumber() != this.columnNumber) {
+                        // 源头读取字段列数与目的表字段写入列数不相等，直接报错
+                        throw DataXException
+                                .asDataXException(
+                                        DBUtilErrorCode.CONF_ERROR,
+                                        String.format(
+                                                "列配置信息有错误. 因为您配置的任务中，源头读取字段数:%s 与 目的表要写入的字段数:%s 不相等. 请检查您的配置并作出修改.",
+                                                record.getColumnNumber(),
+                                                this.columnNumber));
+                    }
+
+                    writeBuffer.add(record);
+                    bufferBytes += record.getMemorySize();
+
+                    if (writeBuffer.size() >= batchSize || bufferBytes >= batchByteSize) {
+                        doBatchInsert(connection, writeBuffer);
+                        this.deleteSource(writeBuffer, configMap);
+                        writeBuffer.clear();
+                        bufferBytes = 0;
+                    }
+                }
+                if (!writeBuffer.isEmpty()) {
+                    doBatchInsert(connection, writeBuffer);
+                    this.deleteSource(writeBuffer, configMap);
+                    writeBuffer.clear();
+                    bufferBytes = 0;
+                }
+            } catch (Exception e) {
+                throw DataXException.asDataXException(
+                        DBUtilErrorCode.WRITE_DATA_ERROR, e);
+            } finally {
+                writeBuffer.clear();
+                bufferBytes = 0;
+                DBUtil.closeDBResources(null, null, connection);
+            }
+        }
+
         // TODO 改用连接池，确保每次获取的连接都是可用的（注意：连接可能需要每次都初始化其 session）
         public void startWrite(RecordReceiver recordReceiver,
                                Configuration writerSliceConfig,
@@ -317,6 +382,25 @@ public class CommonRdbmsWriter {
             DBUtil.dealWithSessionConfig(connection, writerSliceConfig,
                     this.dataBaseType, BASIC_MESSAGE);
             startWriteWithConnection(recordReceiver, taskPluginCollector, connection);
+        }
+
+        /**
+         * 重载 startWrite
+         * @param recordReceiver
+         * @param writerSliceConfig
+         * @param taskPluginCollector
+         * @param configMap
+         */
+        public void startWrite(RecordReceiver recordReceiver,
+                               Configuration writerSliceConfig,
+                               TaskPluginCollector taskPluginCollector,
+                               Map<String, String> configMap) {
+
+            Connection connection = DBUtil.getConnection(this.dataBaseType,
+                    this.jdbcUrl, username, password);
+            DBUtil.dealWithSessionConfig(connection, writerSliceConfig,
+                    this.dataBaseType, BASIC_MESSAGE);
+            startWriteWithConnection(recordReceiver, taskPluginCollector, connection, configMap);
         }
 
 
@@ -563,6 +647,57 @@ public class CommonRdbmsWriter {
 
         protected String calcValueHolder(String columnType) {
             return VALUE_HOLDER;
+        }
+
+
+        private String calcDeleteRecordSql(List<Record> writeBuffer, Map<String, String> configMap) {
+            List<String> valueHolders = new ArrayList<String>(columnNumber);
+            for (int i = 0; i < writeBuffer.size(); i++) {
+                valueHolders.add("?");
+            }
+
+            String deleteTemplate = "DELETE FROM %s WHERE %s IN ( %s )";
+            DataBaseType dataBaseType = DataBaseType.valueOf(configMap.get(SourceDbEnum.TYPE.name()));
+            String table = configMap.get(SourceDbEnum.TABLE.name());
+            String column = configMap.get(SourceDbEnum.COLUMN.name());
+
+            switch (dataBaseType) {
+                case MySql:
+                    break;
+            }
+
+            return String.format(deleteTemplate, table, column, StringUtils.join(valueHolders, ","));
+        }
+
+        /**
+         * 删除源数据
+         */
+        private void deleteSource(List<Record> writeBuffer, Map<String, String> configMap) {
+            if (CollectionUtils.isEmpty(writeBuffer)) {
+                return;
+            }
+
+            Integer columnIndex = MapUtils.getInteger(configMap, SourceDbEnum.COLUMN_INDEX.name());
+            if (Objects.isNull(columnIndex)) {
+                throw new RuntimeException("配置了delete模块，但没有 columnIndex 配置, 请检查配置文件");
+            }
+
+            Connection connection = DBUtil.getConnection(configMap);
+            PreparedStatement preparedStatement = null;
+
+            try {
+                String sql = this.calcDeleteRecordSql(writeBuffer, configMap);
+                connection.setAutoCommit(true);
+                preparedStatement = connection.prepareStatement(sql);
+                int index = 1;
+                for (Record record : writeBuffer) {
+                    preparedStatement.setObject(index++, record.getColumn(columnIndex).getRawData());
+                }
+            } catch (Exception e) {
+                LOG.error("源数据删除失败", e);
+            } finally {
+                DBUtil.closeDBResources(preparedStatement, connection);
+            }
         }
     }
 }

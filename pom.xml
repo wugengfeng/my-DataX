@@ -46,8 +46,8 @@
         <module>transformer</module>
 
         <!-- reader -->
+        <!--<module>drdsreader</module>
         <module>mysqlreader</module>
-        <module>drdsreader</module>
         <module>sqlserverreader</module>
         <module>postgresqlreader</module>
         <module>oraclereader</module>
@@ -65,15 +65,17 @@
         <module>hbase094xreader</module>
         <module>tsdbreader</module>
         <module>opentsdbreader</module>
-        <module>cassandrareader</module>
+        <module>hbase20xsqlreader</module>
+        <module>cassandrareader</module>-->
 
         <!-- writer -->
-        <module>mysqlwriter</module>
+        <!--
         <module>drdswriter</module>
         <module>odpswriter</module>
         <module>txtfilewriter</module>
         <module>ftpwriter</module>
         <module>hdfswriter</module>
+        <module>hbase20xsqlwriter</module>
         <module>streamwriter</module>
         <module>otswriter</module>
         <module>oraclewriter</module>
@@ -92,12 +94,13 @@
         <module>tsdbwriter</module>
         <module>adbpgwriter</module>
         <module>gdbwriter</module>
-        <module>cassandrawriter</module>
+        <module>cassandrawriter</module>-->
+        <module>mysqlwriter</module>
+        <module>mysqlwriterarchive</module>
+
         <!-- common support module -->
         <module>plugin-rdbms-util</module>
         <module>plugin-unstructured-storage-util</module>
-        <module>hbase20xsqlreader</module>
-        <module>hbase20xsqlwriter</module>
     </modules>
 
     <dependencyManagement>
