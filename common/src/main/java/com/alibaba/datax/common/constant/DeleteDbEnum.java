@@ -7,9 +7,9 @@ import java.util.stream.Collectors;
 /**
  * @author: wgf
  * @create: 2020-01-21 11:18
- * @description: 源数据库配置Key 枚举
+ * @description: DELETE据库配置Key 枚举
  **/
-public enum SourceDbEnum {
+public enum DeleteDbEnum {
     TYPE(Prefix.PREFIX + "type"),
     USERNAME(Prefix.PREFIX + "username"),
     PASSWORD(Prefix.PREFIX + "password"),
@@ -19,7 +19,7 @@ public enum SourceDbEnum {
     COLUMN_INDEX(Prefix.PREFIX + "columnIndex");
 
 
-    SourceDbEnum(String key) {
+    DeleteDbEnum(String key) {
         this.key = key;
     }
 
@@ -35,12 +35,12 @@ public enum SourceDbEnum {
      * @return
      */
     public static Map<String, String> toMap() {
-        return Arrays.stream(SourceDbEnum.values())
-                .collect(Collectors.toMap(SourceDbEnum::name, SourceDbEnum::getKey));
+        return Arrays.stream(DeleteDbEnum.values())
+                .collect(Collectors.toMap(DeleteDbEnum::name, DeleteDbEnum::getKey));
     }
 
     interface Prefix {
         // path前缀
-        String PREFIX = "log.";
+        String PREFIX = "delete.";
     }
 }

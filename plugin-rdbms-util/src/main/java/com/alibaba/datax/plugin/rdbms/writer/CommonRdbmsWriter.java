@@ -1,9 +1,12 @@
 package com.alibaba.datax.plugin.rdbms.writer;
 
-import com.alibaba.datax.common.constant.SourceDbEnum;
+import com.alibaba.datax.common.constant.DeleteDbEnum;
+import com.alibaba.datax.common.constant.LogDbEnum;
 import com.alibaba.datax.common.element.Column;
 import com.alibaba.datax.common.element.Record;
 import com.alibaba.datax.common.exception.DataXException;
+import com.alibaba.datax.common.exception.DeleteException;
+import com.alibaba.datax.common.exception.ParseConfigException;
 import com.alibaba.datax.common.plugin.RecordReceiver;
 import com.alibaba.datax.common.plugin.TaskPluginCollector;
 import com.alibaba.datax.common.util.Configuration;
@@ -13,6 +16,7 @@ import com.alibaba.datax.plugin.rdbms.util.DataBaseType;
 import com.alibaba.datax.plugin.rdbms.util.RdbmsException;
 import com.alibaba.datax.plugin.rdbms.writer.util.OriginalConfPretreatmentUtil;
 import com.alibaba.datax.plugin.rdbms.writer.util.WriterUtil;
+import com.alibaba.fastjson.JSON;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -20,14 +24,13 @@ import org.apache.commons.lang3.tuple.Triple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.sql.Types;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.sql.*;
+import java.util.*;
+import java.util.Date;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 
 public class CommonRdbmsWriter {
 
@@ -314,14 +317,7 @@ public class CommonRdbmsWriter {
         }
 
         public void startWriteWithConnection(RecordReceiver recordReceiver, TaskPluginCollector taskPluginCollector, Connection connection,
-                                             Map<String, String> configMap) {
-
-            Connection sourceConnection = null;
-            if (MapUtils.isNotEmpty(configMap)) {
-                sourceConnection = DBUtil.getConnection(configMap);
-                LOG.info("删除源数据信息 url：[{}]", configMap.get(SourceDbEnum.JDBC_URL.name()));
-                LOG.info("删除源数据表：[{}]", configMap.get(SourceDbEnum.TABLE.name()));
-            }
+                                             Map<String, String> configMap, AtomicInteger countNum, AtomicInteger successNum) {
 
             this.taskPluginCollector = taskPluginCollector;
 
@@ -351,15 +347,15 @@ public class CommonRdbmsWriter {
                     bufferBytes += record.getMemorySize();
 
                     if (writeBuffer.size() >= batchSize || bufferBytes >= batchByteSize) {
-                        doBatchInsert(connection, writeBuffer);
-                        this.deleteSource(writeBuffer, configMap);
+                        doBatchInsert(connection, writeBuffer, configMap, successNum);
+                        countNum.addAndGet(writeBuffer.size());
                         writeBuffer.clear();
                         bufferBytes = 0;
                     }
                 }
                 if (!writeBuffer.isEmpty()) {
-                    doBatchInsert(connection, writeBuffer);
-                    this.deleteSource(writeBuffer, configMap);
+                    doBatchInsert(connection, writeBuffer, configMap, successNum);
+                    countNum.addAndGet(writeBuffer.size());
                     writeBuffer.clear();
                     bufferBytes = 0;
                 }
@@ -385,22 +381,27 @@ public class CommonRdbmsWriter {
         }
 
         /**
-         * 重载 startWrite
+         * 重载 startWrite，扩展删除数据功能
+         *
          * @param recordReceiver
          * @param writerSliceConfig
          * @param taskPluginCollector
          * @param configMap
+         * @param countNum            数据总数
+         * @param successNum          成功归档数量
          */
         public void startWrite(RecordReceiver recordReceiver,
                                Configuration writerSliceConfig,
                                TaskPluginCollector taskPluginCollector,
-                               Map<String, String> configMap) {
+                               Map<String, String> configMap,
+                               AtomicInteger countNum,
+                               AtomicInteger successNum) {
 
             Connection connection = DBUtil.getConnection(this.dataBaseType,
                     this.jdbcUrl, username, password);
             DBUtil.dealWithSessionConfig(connection, writerSliceConfig,
                     this.dataBaseType, BASIC_MESSAGE);
-            startWriteWithConnection(recordReceiver, taskPluginCollector, connection, configMap);
+            startWriteWithConnection(recordReceiver, taskPluginCollector, connection, configMap, countNum, successNum);
         }
 
 
@@ -452,6 +453,45 @@ public class CommonRdbmsWriter {
             }
         }
 
+        /**
+         * 重载 doBatchInsert，扩展删除能力
+         *
+         * @param connection 数据库连接
+         * @param buffer     源数据
+         * @param configMap  数据库配置map
+         * @param successNum 成功插入数量
+         * @throws SQLException
+         */
+        protected void doBatchInsert(Connection connection, List<Record> buffer,
+                                     Map<String, String> configMap, AtomicInteger successNum)
+                throws SQLException {
+            PreparedStatement preparedStatement = null;
+            try {
+                connection.setAutoCommit(false);
+                preparedStatement = connection
+                        .prepareStatement(this.writeRecordSql);
+
+                for (Record record : buffer) {
+                    preparedStatement = fillPreparedStatement(
+                            preparedStatement, record);
+                    preparedStatement.addBatch();
+                }
+                preparedStatement.executeBatch();
+                connection.commit();
+                successNum.addAndGet(buffer.size());
+                this.deleteSource(buffer, configMap);
+            } catch (SQLException e) {
+                LOG.warn("回滚此次写入, 采用每次写入一行方式提交. 因为:" + e.getMessage());
+                connection.rollback();
+                doOneInsert(connection, buffer, configMap, successNum);
+            } catch (Exception e) {
+                throw DataXException.asDataXException(
+                        DBUtilErrorCode.WRITE_DATA_ERROR, e);
+            } finally {
+                DBUtil.closeDBResources(preparedStatement, null);
+            }
+        }
+
         protected void doOneInsert(Connection connection, List<Record> buffer) {
             PreparedStatement preparedStatement = null;
             try {
@@ -464,6 +504,44 @@ public class CommonRdbmsWriter {
                         preparedStatement = fillPreparedStatement(
                                 preparedStatement, record);
                         preparedStatement.execute();
+                    } catch (SQLException e) {
+                        LOG.debug(e.toString());
+
+                        this.taskPluginCollector.collectDirtyRecord(record, e);
+                    } finally {
+                        // 最后不要忘了关闭 preparedStatement
+                        preparedStatement.clearParameters();
+                    }
+                }
+            } catch (Exception e) {
+                throw DataXException.asDataXException(
+                        DBUtilErrorCode.WRITE_DATA_ERROR, e);
+            } finally {
+                DBUtil.closeDBResources(preparedStatement, null);
+            }
+        }
+
+        /**
+         * 重载 doOneInsert， 扩展删除能力
+         *
+         * @param connection
+         * @param buffer
+         */
+        protected void doOneInsert(Connection connection, List<Record> buffer,
+                                   Map<String, String> configMap, AtomicInteger successNum) {
+            PreparedStatement preparedStatement = null;
+            try {
+                connection.setAutoCommit(true);
+                preparedStatement = connection
+                        .prepareStatement(this.writeRecordSql);
+
+                for (Record record : buffer) {
+                    try {
+                        preparedStatement = fillPreparedStatement(
+                                preparedStatement, record);
+                        preparedStatement.execute();
+                        successNum.incrementAndGet();
+                        this.deleteSource(Collections.singletonList(record), configMap);
                     } catch (SQLException e) {
                         LOG.debug(e.toString());
 
@@ -657,9 +735,9 @@ public class CommonRdbmsWriter {
             }
 
             String deleteTemplate = "DELETE FROM %s WHERE %s IN ( %s )";
-            DataBaseType dataBaseType = DataBaseType.valueOf(configMap.get(SourceDbEnum.TYPE.name()));
-            String table = configMap.get(SourceDbEnum.TABLE.name());
-            String column = configMap.get(SourceDbEnum.COLUMN.name());
+            DataBaseType dataBaseType = DataBaseType.valueOf(configMap.get(DeleteDbEnum.TYPE.name()));
+            String table = configMap.get(DeleteDbEnum.TABLE.name());
+            String column = configMap.get(DeleteDbEnum.COLUMN.name());
 
             switch (dataBaseType) {
                 case MySql:
@@ -673,13 +751,13 @@ public class CommonRdbmsWriter {
          * 删除源数据
          */
         private void deleteSource(List<Record> writeBuffer, Map<String, String> configMap) {
-            if (CollectionUtils.isEmpty(writeBuffer)) {
+            if (CollectionUtils.isEmpty(writeBuffer) || MapUtils.isEmpty(configMap)) {
                 return;
             }
 
-            Integer columnIndex = MapUtils.getInteger(configMap, SourceDbEnum.COLUMN_INDEX.name());
+            Integer columnIndex = MapUtils.getInteger(configMap, DeleteDbEnum.COLUMN_INDEX.name());
             if (Objects.isNull(columnIndex)) {
-                throw new RuntimeException("配置了delete模块，但没有 columnIndex 配置, 请检查配置文件");
+                throw new ParseConfigException("配置了delete模块，但没有 columnIndex 配置, 请检查配置文件");
             }
 
             Connection connection = DBUtil.getConnection(configMap);
@@ -693,11 +771,122 @@ public class CommonRdbmsWriter {
                 for (Record record : writeBuffer) {
                     preparedStatement.setObject(index++, record.getColumn(columnIndex).getRawData());
                 }
+
+                preparedStatement.execute();
+                LOG.info("成功删除数据 {} 条", writeBuffer.size());
             } catch (Exception e) {
                 LOG.error("源数据删除失败", e);
+                throw new DeleteException("源数据删除失败");
             } finally {
                 DBUtil.closeDBResources(preparedStatement, connection);
             }
+        }
+
+        /**
+         * 添加日志
+         *
+         * @param logConfigMap   log数据库配置
+         * @param deleteDbConfig delete模块配置
+         * @param countNum       数据总条数
+         * @param successNum     成功归档数量条数
+         * @param startDate      开始时间
+         */
+        public void addLog(Map<String, String> logConfigMap, Map<String, String> deleteDbConfig,
+                           AtomicInteger countNum, AtomicInteger successNum, Date startDate) {
+
+            if (MapUtils.isEmpty(logConfigMap)) {
+                return;
+            }
+
+            DataBaseType dataBaseType = DataBaseType.valueOf(logConfigMap.get(LogDbEnum.TYPE.name()));
+            Date now = new Date();
+
+            String sql = this.calcLogRecordSql(logConfigMap);
+
+            Connection connection = null;
+            PreparedStatement ps = null;
+            try {
+                connection = DBUtil.getConnection(logConfigMap);
+                ps = connection.prepareStatement(sql);
+
+                ps.setString(1, logConfigMap.get(LogDbEnum.JOB_NAME.name()));
+
+                if (dataBaseType.equals(DataBaseType.PostgreSQL)) {
+                    ps.setTimestamp(2, new Timestamp(startDate.getTime()));
+                    ps.setTimestamp(3, new Timestamp(now.getTime()));
+                    ps.setDate(4, new java.sql.Date(now.getTime()));
+                } else {
+                    ps.setObject(2, startDate);
+                    ps.setObject(3, now);
+                    ps.setObject(4, now);
+                }
+                ps.setObject(5, countNum.intValue());
+                ps.setObject(6, successNum.intValue());
+                ps.setObject(7, countNum.intValue() - successNum.intValue());
+
+                ps.setObject(8, deleteDbConfig.get(DeleteDbEnum.TABLE.name()));
+                ps.setObject(9, deleteDbConfig.get(DeleteDbEnum.JDBC_URL.name()));
+                ps.setObject(10, this.table);
+                ps.setObject(11, this.jdbcUrl);
+                ps.setObject(12, this.getIp());
+
+                ps.executeUpdate();
+            } catch (Exception e) {
+                LOG.error("添加日志失败", e);
+            } finally {
+                DBUtil.closeDBResources(ps, connection);
+            }
+        }
+
+        /**
+         * 根据配置生成 insert 语句
+         *
+         * @param logConfigMap
+         * @return
+         */
+        private String calcLogRecordSql(Map<String, String> logConfigMap) {
+
+            String sql = null;
+            List<String> valueHolders = new ArrayList<>();
+            List<String> columns = Arrays.asList(
+                    "job_name",
+                    "start_date",
+                    "end_date",
+                    "period",
+                    "count_num",
+                    "success_num",
+                    "error_num",
+                    "reader_tab",
+                    "reader_url",
+                    "writer_tab",
+                    "writer_url",
+                    "ip_address");
+            IntStream.range(0, columns.size()).forEach(v -> valueHolders.add("?"));
+            String tableName = logConfigMap.get(LogDbEnum.TABLE.name());
+            DataBaseType dataBaseType = DataBaseType.valueOf(logConfigMap.get(LogDbEnum.TYPE.name()));
+
+            sql = String.format("INSERT INTO %s (%s) VALUES (%s)", tableName,
+                    StringUtils.join(columns, ","), StringUtils.join(valueHolders, ","));
+
+            switch (dataBaseType) {
+                case MySql:
+                    break;
+                case PostgreSQL:
+                    break;
+            }
+
+            return sql;
+        }
+
+        private String getIp() {
+            String ip = null;
+            try {
+                InetAddress serviceIp = InetAddress.getLocalHost();
+                ip = serviceIp.getHostAddress();
+            } catch (UnknownHostException e) {
+                e.printStackTrace();
+            }
+            return ip;
         }
     }
 }

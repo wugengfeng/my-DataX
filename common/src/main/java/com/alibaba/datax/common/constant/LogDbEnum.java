@@ -16,7 +16,7 @@ public enum LogDbEnum {
     PASSWORD(Prefix.PREFIX + "password"),
     JDBC_URL(Prefix.PREFIX + "jdbcUrl"),
     TABLE(Prefix.PREFIX + "table"),
-    JOB_NAME(SourceDbEnum.Prefix.PREFIX + "jobName");
+    JOB_NAME(Prefix.PREFIX + "jobName");
 
     LogDbEnum(String key) {
         this.key = key;
@@ -34,12 +34,12 @@ public enum LogDbEnum {
      * @return
      */
     public static Map<String, String> toMap() {
-        return Arrays.stream(SourceDbEnum.values())
-                .collect(Collectors.toMap(SourceDbEnum::name, SourceDbEnum::getKey));
+        return Arrays.stream(LogDbEnum.values())
+                .collect(Collectors.toMap(LogDbEnum::name, LogDbEnum::getKey));
     }
 
     interface Prefix {
         // path前缀
-        String PREFIX = "delete.";
+        String PREFIX = "log.";
     }
 }

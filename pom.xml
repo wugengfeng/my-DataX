@@ -97,6 +97,7 @@
         <module>cassandrawriter</module>-->
         <module>mysqlwriter</module>
         <module>mysqlwriterarchive</module>
+        <module>postgresqlwriterarchive</module>
 
         <!-- common support module -->
         <module>plugin-rdbms-util</module>

@@ -1,0 +1,70 @@
+// mysql -> postgreSql 异构数据归档配置
+
+{
+  "job": {
+    "setting": {
+      "speed": {
+        "channel": 3
+      }
+    },
+    "content": [
+      {
+        "reader": {
+          "name": "mysqlreader",
+          "parameter": {
+            "username": "",
+            "password": "",
+            "splitPk": "id",
+            "connection": [
+              {
+                "querySql": [
+                  "SELECT id, name, create_date FROM test"
+                ],
+                "jdbcUrl": [
+                  "jdbc:mysql://localhost:3306/datax?useUnicode=true&characterEncoding=utf8&useSSL=true&allowMultiQueries=true&autoReconnect=true"
+                ]
+              }
+            ]
+          }
+        },
+        "writer": {
+          "name": "postgresqlwriterarchive",
+          "parameter": {
+            "username": "",
+            "password": "",
+            "column": [
+              "id",
+              "name",
+              "create_date"
+            ],
+            "connection": [
+              {
+                "jdbcUrl": "jdbc:postgresql://localhost:5432/datax",
+                "table": [
+                  "listing_snapshot"
+                ]
+              }
+            ],
+            "delete": {
+              "type": "MySql",
+              "username": "",
+              "password": "",
+              "jdbcUrl": "jdbc:mysql://localhost:3306/datax?useUnicode=true&characterEncoding=utf8&useSSL=true&allowMultiQueries=true&autoReconnect=true",
+              "table": "listing_snapshot",
+              "column": "id",
+              "columnIndex": "0"
+            },
+            "log": {
+              "type": "PostgreSQL",
+              "username": "",
+              "password": "",
+              "jdbcUrl": "jdbc:postgresql://localhost:5432/datax",
+              "table": "job_log",
+              "jobName": "pg_test"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
