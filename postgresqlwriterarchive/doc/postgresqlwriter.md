@@ -88,8 +88,8 @@ PostgresqlWriterArchive通过 DataX 框架获取 Reader 生成的协议数据，
                         },
                         "log": {
                             "type": "PostgreSQL",
-                            "username": "postgres",
-                            "password": "wugf",
+                            "username": "xx",
+                            "password": "xx",
                             "jdbcUrl": "jdbc:postgresql://127.0.0.1:5432/datax",
                             "table": "job_log",
                             "jobName": "pg_test"
