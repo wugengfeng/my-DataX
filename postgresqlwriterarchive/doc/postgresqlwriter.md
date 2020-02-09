@@ -53,7 +53,7 @@ PostgresqlWriterArchive通过 DataX 框架获取 Reader 生成的协议数据，
                                  "SELECT id, crawl_id, create_date FROM test"
                              ],
                              "jdbcUrl": [
-                                 "jdbc:mysql://localhost:3306/datax?useUnicode=true&characterEncoding=utf8&useSSL=true&allowMultiQueries=true&autoReconnect=true"
+                                 "jdbc:mysql://127.0.0.1:3306/datax?useUnicode=true&characterEncoding=utf8&useSSL=true&allowMultiQueries=true&autoReconnect=true"
                              ]
                          }
                      ]
@@ -81,7 +81,7 @@ PostgresqlWriterArchive通过 DataX 框架获取 Reader 生成的协议数据，
                             "type": "MySql",
                             "username": "xx",
                             "password": "xx",
-                            "jdbcUrl": "jdbc:mysql://localhost:3306/datax?useUnicode=true&characterEncoding=utf8&useSSL=true&allowMultiQueries=true&autoReconnect=true",
+                            "jdbcUrl": "jdbc:mysql://127.0.0.1:3306/datax?useUnicode=true&characterEncoding=utf8&useSSL=true&allowMultiQueries=true&autoReconnect=true",
                             "table": "listing_snapshot",
                             "column": "id",
                             "columnIndex": "0"
@@ -90,7 +90,7 @@ PostgresqlWriterArchive通过 DataX 框架获取 Reader 生成的协议数据，
                             "type": "PostgreSQL",
                             "username": "postgres",
                             "password": "wugf",
-                            "jdbcUrl": "jdbc:postgresql://47.106.207.16:5432/polaris_crawler",
+                            "jdbcUrl": "jdbc:postgresql://127.0.0.1:5432/datax",
                             "table": "job_log",
                             "jobName": "pg_test"
                         }
