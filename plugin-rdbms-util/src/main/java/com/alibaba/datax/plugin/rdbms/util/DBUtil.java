@@ -272,7 +272,7 @@ public final class DBUtil {
             String table = configMap.get(LogDbEnum.TABLE.name());
             hasInsertPrivilege = checkInsertPrivilege(dataBaseType, jdbcURL, userName, password, Collections.singletonList(table));
         } catch (Exception e) {
-            LOG.error("数据库 INSERT 权限校验异常 配置：{}", JSON.toJSONString(configMap));
+            LOG.error("数据库 INSERT 权限校验异常 配置：{}", configMap.get(LogDbEnum.JDBC_URL.name()));
             throw e;
         }
         return hasInsertPrivilege;
@@ -323,7 +323,7 @@ public final class DBUtil {
             String table = configMap.get(LogDbEnum.TABLE.name());
             hasDeletePrivilege = checkDeletePrivilege(dataBaseType, jdbcURL, userName, password, Collections.singletonList(table));
         } catch (Exception e) {
-            LOG.error("数据库 DELETE 权限校验异常 配置：{}", JSON.toJSONString(configMap));
+            LOG.error("数据库 DELETE 权限校验异常 配置：{}", configMap.get(LogDbEnum.JDBC_URL.name()));
             throw e;
         }
 
