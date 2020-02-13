@@ -104,7 +104,7 @@ PostgresqlWriterArchive通过 DataX 框架获取 Reader 生成的协议数据，
 ```
 
 
-### 3.2 参数说明
+### 3.2 参数说明 (writer部分)
 
 * **jdbcUrl**
 
@@ -178,6 +178,129 @@ PostgresqlWriterArchive通过 DataX 框架获取 Reader 生成的协议数据，
 	* 必选：否 <br />
 
 	* 默认值：1024 <br />
+	
+### delete模块
+```
+    * 描述：配置后数据迁移完成会删除源库数据，不配则不删除源数据
+    
+    * 必选：按需
+    
+    * 默认值：无
+    
+type
+
+    * 描述：数据库类型，目前有MySql、PostgreSQL配置，扩展插件后可以继续添加数据库类型
+
+    * 必选：否
+
+    * 默认值：无 
+    
+username
+
+    * 描述：源数据库用户名
+    
+    * 必选：配置delete模块则必填
+    
+    * 默认值：无  
+    
+password
+
+    * 描述：源数据库密码
+    
+    * 必选：配置delete模块则必填
+    
+    * 默认值：无    
+    
+jdbcUrl
+
+    * 描述：源数据库连接
+    
+    * 必选：配置delete模块则必填
+    
+    * 默认值：无   
+    
+table
+
+    * 描述：源数据表，归档完成删除的源数据表名，一定要和reader模块的表名一致
+    
+    * 必选：配置delete模块则必填
+    
+    * 默认值：无                
+    
+column
+     
+    * 描述：归档完成后删除源数据的条件列名，必须在reader模块的querySql中存在，推荐使用id或其他唯一值，删除源数据底层实现 delete from [配置table] where [配置colunm] in [data.get[配置columnIndex]] 
+    
+    * 必选：配置delete模块则必填
+    
+    * 默认值：无    
+    
+columnIndex
+    
+    * 描述：column在querySql中查询字段的下表位置，开始值为0
+    
+    * 必选：配置delete模块则必填
+    
+    * 默认值：无            
+```
+
+### log模块
+```
+    * 描述：数据完成后归档记录日志的数据库，配置此模块需要在日志库中新建log表，建表语句参考根目录log.sql
+    
+    * 必选：按需
+    
+    * 默认值：无
+    
+type
+
+    * 描述：数据库类型，目前有MySql、PostgreSQL配置，扩展插件后可以继续添加数据库类型
+
+    * 必选：配置log模块则必填
+
+    * 默认值：无 
+    
+username
+
+    * 描述：日志据库用户名
+    
+    * 必选：配置log模块则必填
+    
+    * 默认值：无  
+    
+password
+
+    * 描述：日志据库密码
+    
+    * 必选：配置log模块则必填
+    
+    * 默认值：无    
+    
+jdbcUrl
+
+    * 描述：日志数据库连接
+    
+    * 必选：配置log模块则必填
+    
+    * 默认值：无   
+    
+table
+
+    * 描述：日志表名，归档完成后记录日志的表名称
+    
+    * 必选：配置log模块则必填
+    
+    * 默认值：log.sql里默认建表名称为 job_log，可以修改
+    
+jobName
+
+    * 描述：这次归档的任务名称，一般取 归档表名_archive，方便在log表中查看
+    
+    * 必选：配置log模块则必填
+    
+    * 默认值：无                   
+```
+
 
 ### 3.3 类型转换
 
@@ -194,79 +317,3 @@ PostgresqlWriterArchive通过 DataX 框架获取 Reader 生成的协议数据，
 | Boolean  |bool|
 | Bytes    |bytea|
 
-## 4 性能报告
-
-### 4.1 环境准备
-
-#### 4.1.1 数据特征
-建表语句：
-
- create table pref_test(
-     id serial,
-     a_bigint bigint,
-     a_bit bit(10),
-     a_boolean boolean,
-     a_char character(5),
-     a_date date,
-     a_double double precision,
-     a_integer integer,
-     a_money money,
-     a_num numeric(10,2),
-     a_real real,
-     a_smallint smallint,
-     a_text text,
-     a_time time,
-     a_timestamp timestamp
-)
-
-#### 4.1.2 机器参数
-
-* 执行DataX的机器参数为:
-	1. cpu: 16核 Intel(R) Xeon(R) CPU E5620  @ 2.40GHz
-	2. mem: MemTotal: 24676836kB    MemFree: 6365080kB
-	3. net: 百兆双网卡
-
-* PostgreSQL数据库机器参数为:
-	D12 24逻辑核  192G内存 12*480G SSD 阵列
-
-
-### 4.2 测试报告
-
-#### 4.2.1 单表测试报告
-
-| 通道数|  批量提交batchSize | DataX速度(Rec/s)| DataX流量(M/s) | DataX机器运行负载
-|--------|--------| --------|--------|--------|--------|
-|1| 128 | 9259 | 0.55 | 0.3
-|1| 512 | 10869 | 0.653 | 0.3
-|1| 2048 | 9803 | 0.589 | 0.8
-|4| 128 | 30303 | 1.82 | 1
-|4| 512 | 36363 | 2.18 | 1
-|4| 2048 | 36363 | 2.18 | 1
-|8| 128 | 57142 | 3.43 | 2
-|8| 512 | 66666 | 4.01 | 1.5
-|8| 2048 | 66666 | 4.01 | 1.1
-|16| 128 | 88888 | 5.34 | 1.8
-|16| 2048 | 94117 | 5.65 | 2.5
-|32| 512 | 76190 | 4.58 | 3
-
-#### 4.2.2 性能测试小结
-1. `channel数对性能影响很大`
-2. `通常不建议写入数据库时，通道个数 > 32`
-
-
-## FAQ
-
-***
-
-**Q: PostgresqlWriterArchive 执行 postSql 语句报错，那么数据导入到目标数据库了吗?**
-
-A: DataX 导入过程存在三块逻辑，pre 操作、导入操作、post 操作，其中任意一环报错，DataX 作业报错。由于 DataX 不能保证在同一个事务完成上述几个操作，因此有可能数据已经落入到目标端。
-
-***
-
-**Q: 按照上述说法，那么有部分脏数据导入数据库，如果影响到线上数据库怎么办?**
-
-A: 目前有两种解法，第一种配置 pre 语句，该 sql 可以清理当天导入数据， DataX 每次导入时候可以把上次清理干净并导入完整数据。
-第二种，向临时表导入数据，完成后再 rename 到线上表。
-
-***
